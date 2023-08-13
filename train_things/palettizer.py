@@ -6,7 +6,7 @@ import os
 
 pygame.init()
 
-names = [
+base_names = [
     "brown",
     "red",
     "orange",
@@ -25,17 +25,33 @@ names = [
     "black"
 ]
 
+extensions = {
+    "newpllaets": (3, [
+        "deep_blue",
+        "olive",
+        "burnt_purple"
+    ])
+}
+
 base_palette_name = "red"
 
 # start by splitting palette
 
 full_palette = pygame.image.load("input/colorpallets.png")
 
-start_x = 0
 second_row = False
 
 palette_idx = 0
-palettes = {k: [0, pygame.Surface((20, 1), pygame.SRCALPHA), []] for k in names}
+
+extension_names = []
+
+for k, v in extensions.items():
+    extension_names += v[1]
+
+
+all_names = [] + base_names + extension_names
+
+palettes = {k: [0, pygame.Surface((20, 1), pygame.SRCALPHA), []] for k in all_names}
 
 for y in range(full_palette.get_height()):
     if second_row:
@@ -61,10 +77,30 @@ for y in range(full_palette.get_height()):
 
         # print(color, names[palette_idx], palettes[names[palette_idx]][0])
 
-        palette_surf = palettes[names[palette_idx]][1]
-        palette_surf.set_at((palettes[names[palette_idx]][0], 0), color)
-        palettes[names[palette_idx]][0] += 1
-        palettes[names[palette_idx]][2].append(color)
+        palette_surf = palettes[base_names[palette_idx]][1]
+        palette_surf.set_at((palettes[base_names[palette_idx]][0], 0), color)
+        palettes[base_names[palette_idx]][0] += 1
+        palettes[base_names[palette_idx]][2].append(color)
+
+for extension_name, dat in extensions.items():
+    count, color_list = dat
+    extension_img = pygame.image.load(f"input/extra_palettes/{extension_name}.png")
+    sub_idx = 0
+    for y in range(extension_img.get_height()):
+        sub_idx = 0
+        for x in range(extension_img.get_width()):
+            if full_palette.get_at((x, 4)) == (0, 0, 0, 255): # added black dots as markers
+                sub_idx += 1
+                sub_idx %= count
+
+            color = extension_img.get_at((x, y))
+            if color[3] == 0: # skip transparent
+                continue
+
+            palette_surf = palettes[color_list[sub_idx]][1]
+            palette_surf.set_at((palettes[color_list[sub_idx]][0], 0), color)
+            palettes[color_list[sub_idx]][0] += 1
+            palettes[color_list[sub_idx]][2].append(color)
 
 for k, v in palettes.items():
     pygame.image.save(v[1], f"output/palettes/{k}.png")
