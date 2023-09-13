@@ -1,4 +1,5 @@
 import sys
+import typing
 import tempfile
 
 import ct_gen.ct_gen as ct_gen
@@ -27,16 +28,96 @@ def shift_horiz(y_range: range, x_amt: int):
 def half_scale(surf: pygame.Surface) -> pygame.Surface:
     return pygame.transform.scale(surf, (surf.get_width() / 2, surf.get_height() / 2))
 
+def split_vertically_auto(surf: pygame.Surface, divider_height: int = 2) -> list[pygame.Surface]:
+    ranges: list[range] = [] # [start, end)
+    start: int | None = None
+
+    for y in range(surf.get_height()):
+        is_empty_row = True
+        is_bottom_empty_row = True
+        for x in range(surf.get_width()):
+            if surf.get_at((x, y))[3] > 10:
+                is_empty_row = False
+                break
+            elif y + 1 < surf.get_height() and surf.get_at((x, y+1))[3] > 10:
+                is_empty_row = False
+                is_bottom_empty_row = False
+                break
+
+        if is_empty_row:
+            if start is not None:
+                ranges.append(range(start, y))
+                start = None
+            else:
+                continue
+        elif start is None and is_bottom_empty_row:
+            start = y
+
+    if start is not None:
+        ranges.append(range(start, y+1))
+
+    return [surf.subsurface((0, r.start, surf.get_width(), r.stop - r.start)) for r in ranges]
+
+def split_horizontally_auto(surf: pygame.Surface, divider_width: int = 2) -> list[pygame.Surface]:
+    ranges: list[range] = [] # [start, end)
+    start: int | None = None
+
+    for x in range(surf.get_width()):
+        is_empty_col = True
+        is_right_empty_col = True
+        for y in range(surf.get_height()):
+            if surf.get_at((x, y))[3] > 10:
+                is_empty_col = False
+                break
+            elif x + 1 < surf.get_width() and surf.get_at((x+1, y))[3] > 10:
+                is_empty_col = False
+                is_right_empty_col = False
+                break
+
+        if is_empty_col:
+            if start is not None:
+                ranges.append(range(start, x))
+                start = None
+            else:
+                continue
+        elif start is None and is_right_empty_col:
+            start = x
+
+    if start is not None:
+        ranges.append(range(start, x+1))
+
+    return [surf.subsurface((r.start, 0, r.stop - r.start, surf.get_height())) for r in ranges]
+
+def build_sheet_splitter(sheet_tex: str, steps: list[typing.Callable[[pygame.Surface], list[pygame.Surface]]]) -> typing.Callable[["PaletteConf"], dict[str, pygame.Surface]]:
+    def f(conf: PaletteConf) -> dict[str, pygame.Surface]:
+        images = [conf.ld(sheet_tex)]
+
+        for i, step in enumerate(steps):
+            new_images = []
+            for image in images:
+                new_images += step(image)
+            images = new_images
+
+            for j, image in enumerate(images):
+                conf.sv(image, "palettized_steps", f"step_{i + 1}_{j + 1}.png")
+
+        assert len(images) == len(conf.color_names), f"Color names ({len(conf.color_names)}) & split images ({len(images)}) have differing counts"
+        return dict(zip(conf.color_names, images))
+    return f
+
 # Palette should have sets of colors with a column of whitespace in btw (one row)
 class PaletteConf:
     def __init__(self, name: str, base_tex: str, palette_tex: str, color_names: list[str], base_color_name: str,
-                 palette_processors: list = None, sectors: dict[str, tuple[int, int, int, int, bool]] | None = None):
+                 palette_processors: list[typing.Callable[[pygame.Surface], pygame.Surface]] = None,
+                 sectors: dict[str, tuple[int, int, int, int, bool]] | None = None,
+                 palettized_src: typing.Callable[["PaletteConf"], dict[str, pygame.Surface]] | None = None):
         self.name = name
         self.base_tex = base_tex
         self.palette_tex = palette_tex
         self.color_names = color_names
         self.base_color_name = base_color_name
         self.palette_processors = palette_processors or []
+        self.palettized_src = palettized_src
         assert base_color_name in color_names
 
         self.sectors: dict[str, tuple[int, int, int, int, bool]] | None = sectors
@@ -47,18 +128,18 @@ class PaletteConf:
     def _mkpath(self, *parts: str) -> str:
         return os.path.join("sets", self.name, *parts)
 
-    def _ld(self, *path: str) -> pygame.Surface:
+    def ld(self, *path: str) -> pygame.Surface:
         return pygame.image.load(self._mkpath(*path))
 
-    def _sv(self, surf: pygame.Surface, *path: str):
+    def sv(self, surf: pygame.Surface, *path: str):
         pygame.image.save(surf, self._mkpath(*path))
 
     def mkdirs(self):
-        for ext in ["palette_process_steps", "preview_rps"] + [os.path.join("output", c) for c in self.color_names]:
+        for ext in ["palette_process_steps", "preview_rps"] + [os.path.join("output", c) for c in self.color_names] + ([] if self.palettized_src is None else ["palettized_steps"]):
             os.makedirs(self._mkpath(ext), exist_ok=True)
 
     def get_base_surf(self) -> pygame.Surface:
-        return self._ld(self.base_tex)
+        return self.ld(self.base_tex)
 
     def get_palette_surf(self) -> pygame.Surface:
         if self._palette_surf is not None:
@@ -66,11 +147,11 @@ class PaletteConf:
         surf = pygame.image.load(os.path.join("sets", self.name, self.palette_tex))
         for i, processor in enumerate(self.palette_processors):
             surf = processor(surf)
-            self._sv(surf, "palette_process_steps", f"step_{i+1}.png")
+            self.sv(surf, "palette_process_steps", f"step_{i + 1}.png")
         self._palette_surf = surf
         return surf
 
-    def split_palette(self) -> dict[str, list[tuple[int, int, int]]]:
+    def _split_palette(self) -> dict[str, list[tuple[int, int, int]]]:
         pal = self.get_palette_surf()
 
         ranges: list[range] = [] # [start, end)
@@ -122,7 +203,12 @@ class PaletteConf:
         return palettes
 
     def palettize(self):
-        palettes = self.split_palette()
+        if self.palettized_src is not None:
+            palette_surfs = self.palettized_src(self)
+            for color_name in self.color_names:
+                self.sv(palette_surfs[color_name], "output", color_name, "0_full_base.png")
+            return
+        palettes = self._split_palette()
         base_img = self.get_base_surf()
 
         w, h = base_img.get_width(), base_img.get_height()
@@ -143,7 +229,7 @@ class PaletteConf:
         for c in palettes[self.base_color_name]:
             r, g, b = c
             print(f"\t{r:02x}{g:02x}{b:02x}")
-        self._sv(overlay_img, "overlay.png")
+        self.sv(overlay_img, "overlay.png")
 
         for color_name in self.color_names:
             img = pygame.Surface((w, h), pygame.SRCALPHA)
@@ -157,16 +243,14 @@ class PaletteConf:
                     else:
                         idx = palettes[self.base_color_name].index(c)
                         img.set_at((x, y), palettes[color_name][idx])
-            self._sv(img, "output", color_name, "0_full_base.png")
+            self.sv(img, "output", color_name, "0_full_base.png")
 
     def sectorize(self):
         if self.sectors is None: return
         # sector fmt:   x,  y,  w,  h, make power of 2
 
-        palettes = self.split_palette()
-
-        for color_name, data in palettes.items():
-            out = self._ld("output", color_name, "0_full_base.png")
+        for color_name in self.color_names:
+            out = self.ld("output", color_name, "0_full_base.png")
 
             for sector_name, params in self.sectors.items():
                 x_0, y_0, w, h, make_power_of_2 = params
@@ -184,10 +268,10 @@ class PaletteConf:
                     new_sector.blit(sector, (0, 0))
                     sector = new_sector
 
-                self._sv(sector, "output", color_name, f"{sector_name}.png")
+                self.sv(sector, "output", color_name, f"{sector_name}.png")
 
                 if "template" in sector_name:
-                    self._sv(ct_gen.generate_ct(sector), "output", color_name, f"{sector_name.replace('template', 'full')}.png")
+                    self.sv(ct_gen.generate_ct(sector), "output", color_name, f"{sector_name.replace('template', 'full')}.png")
 
     def gen_preview_rp(self):
         if self.sectors is None: return
@@ -267,7 +351,12 @@ palette_sets = [
                     "slashed_ct_template":          _ct(0, 64),
                     "riveted_ct_template":          _ct(0, 97),
                     "wrapped_slashed_ct_template":  _ct(0, 130)
-                }),
+                },
+                palettized_src=build_sheet_splitter("boilers.png", [
+                    split_vertically_auto,
+                    split_horizontally_auto
+                ])
+                ),
 ]
 
 for palette_set in palette_sets:
