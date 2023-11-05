@@ -343,8 +343,10 @@ palette_sets = [
                     "boiler_gullet": (0,  33, 30, 30, True),
                     "smokebox_door": (34, 33, 30, 30, True),
 
-                    "connected_boiler_side":         (65, 24, 16, 48, True),
-                    "wrapped_connected_boiler_side": (65, 81, 16, 48, True),
+                    "boiler_side":                   (65, 24, 16, 16, True),
+                    "boiler_side_connected":         (65, 24, 16, 48, True),
+                    "wrapped_boiler_side":           (65, 81, 16, 16, True),
+                    "wrapped_boiler_side_connected": (65, 81, 16, 48, True),
 
                     "wrapped_slashed": _16(64, 138),
 
