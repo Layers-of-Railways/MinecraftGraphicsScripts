@@ -323,10 +323,12 @@ def _16(x: int, y: int) -> tuple[int, int, int, int, bool]:
     return x, y, 16, 16, True
 def _ct(x: int, y: int) -> tuple[int, int, int, int, bool]:
     return x, y, 64, 32, True
+# new mapping: ['brown', 'red', 'orange', 'yellow', 'green', 'dark_green', 'deep_green', 'light_blue', 'blue', 'purple',
+#               'magenta', 'pink', 'white', 'light_grey', 'dark_grey', 'black', 'netherite'],
 palette_sets = [
     PaletteConf("boiler", "boiler_v2.png", "palette_new.png",
-                ['brown', 'red', 'orange', 'yellow', 'green', 'dark_green', 'deep_green', 'light_blue', 'blue', 'purple',
-                'magenta', 'pink', 'white', 'light_grey', 'dark_grey', 'black', 'netherite'],
+                ['brown', 'red', 'orange', 'yellow', 'lime', 'cyan', 'green', 'light_blue', 'blue', 'purple',
+                'magenta', 'pink', 'white', 'light_gray', 'gray', 'black', 'netherite'],
                 "netherite",
                 palette_processors=[shift_horiz(range(2), -1), half_scale],
                 sectors={
