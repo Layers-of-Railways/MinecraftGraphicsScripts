@@ -9,6 +9,21 @@ import os
 
 pygame.init()
 
+def vertical_strip_to_horizontal_kryppers(surf: pygame.Surface) -> pygame.Surface:
+    out = pygame.Surface((32, 32))
+    out.blit(surf.subsurface(0, 0, 16, 16), (16, 16))
+    out.blit(surf.subsurface(0, 32, 16, 16), (0, 16))
+    out.blit(surf.subsurface(0, 16, 16, 16), (16, 0))
+    out.blit(surf.subsurface(0, 0, 16, 8), (0, 0))
+    out.blit(surf.subsurface(0, 40, 16, 8), (0, 8))
+    return out
+
+def vertical_strip_to_horizontal_kryppers_single(surf: pygame.Surface) -> pygame.Surface:
+    out = pygame.Surface((16, 16))
+    out.blit(surf.subsurface(0, 0, 16, 8), (0, 0))
+    out.blit(surf.subsurface(0, 40, 16, 8), (0, 8))
+    return out
+
 def dup_range(rng: range) -> range:
     return range(rng.start, rng.stop, rng.step)
 
@@ -253,7 +268,7 @@ class PaletteConf:
             out = self.ld("output", color_name, "0_full_base.png")
 
             for sector_name, params in self.sectors.items():
-                x_0, y_0, w, h, make_power_of_2 = params
+                x_0, y_0, w, h, make_power_of_2 = params[:5]
                 sector = out.subsurface((x_0, y_0, w, h))
 
                 if make_power_of_2:
@@ -267,6 +282,11 @@ class PaletteConf:
                     new_sector = pygame.Surface((lowest_pow_2_width, lowest_pow_2_height), pygame.SRCALPHA)
                     new_sector.blit(sector, (0, 0))
                     sector = new_sector
+
+                if len(params) == 6: # 6th element is a list of postprocessor functions
+                    processors: list[typing.Callable[[pygame.Surface], pygame.Surface]] = params[5]
+                    for processor in processors:
+                        sector: pygame.Surface = processor(sector)
 
                 self.sv(sector, "output", color_name, f"{sector_name}.png")
 
@@ -316,6 +336,7 @@ class PaletteConf:
 
             preview_rp_path = self._mkpath("preview_rps", f"locometal_preview_{color}.zip")
             os.system(f"cp \"{os.path.join(tmp_dir, 'preview_rp.zip')}\" \"{preview_rp_path}\"")
+            os.rmdir(tmp_dir)
 
 
 # TODO: Palette is not complete, there is a color (#352b2b) not in the palette... GAHAHHAHAHAHAAARRRR
@@ -345,10 +366,10 @@ palette_sets = [
                     "boiler_gullet": (0,  33, 30, 30, True),
                     "smokebox_door": (34, 33, 30, 30, True),
 
-                    "boiler_side":                   (65, 24, 16, 16, True),
-                    "boiler_side_connected":         (65, 24, 16, 48, True),
-                    "wrapped_boiler_side":           (65, 81, 16, 16, True),
-                    "wrapped_boiler_side_connected": (65, 81, 16, 48, True),
+                    "boiler_side":                   (65, 24, 16, 48, True, [vertical_strip_to_horizontal_kryppers_single]),
+                    "boiler_side_connected":         (65, 24, 16, 48, True, [vertical_strip_to_horizontal_kryppers]),
+                    "wrapped_boiler_side":           (65, 81, 16, 48, True, [vertical_strip_to_horizontal_kryppers_single]),
+                    "wrapped_boiler_side_connected": (65, 81, 16, 48, True, [vertical_strip_to_horizontal_kryppers]),
 
                     "wrapped_slashed": _16(64, 138),
 
