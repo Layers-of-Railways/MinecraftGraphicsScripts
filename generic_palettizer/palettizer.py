@@ -1,4 +1,4 @@
-import sys
+import shutil
 import typing
 import tempfile
 
@@ -8,6 +8,29 @@ import pygame
 import os
 
 pygame.init()
+
+def expand_diagonals(surf: pygame.Surface) -> pygame.Surface:
+    out = pygame.Surface((surf.get_width(), surf.get_height()), pygame.SRCALPHA)
+    for x in range(surf.get_width()):
+        for y in range(surf.get_height()):
+            out.set_at((x, y), surf.get_at((x, y)))
+
+            if surf.get_at((x, y))[3] == 0:
+                adj = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+                adj_colors = []
+                for xoff, yoff in adj:
+                    try:
+                        c = surf.get_at((x + xoff, y + yoff))
+                    except IndexError:
+                        continue
+                    if c[3] > 0:
+                        adj_colors.append(c)
+                if len(adj_colors) >= 2:
+                    r, g, b = [v[0] for v in adj_colors], [v[1] for v in adj_colors], [v[2] for v in adj_colors]
+                    avg_col = (round(sum(r)/len(r)), round(sum(g)/len(g)), round(sum(b)/len(b)))
+                    out.set_at((x, y), avg_col)
+    return out
+
 
 def vertical_strip_to_horizontal_kryppers(surf: pygame.Surface) -> pygame.Surface:
     out = pygame.Surface((32, 32))
@@ -336,7 +359,7 @@ class PaletteConf:
 
             preview_rp_path = self._mkpath("preview_rps", f"locometal_preview_{color}.zip")
             os.system(f"cp \"{os.path.join(tmp_dir, 'preview_rp.zip')}\" \"{preview_rp_path}\"")
-            os.rmdir(tmp_dir)
+            shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 # TODO: Palette is not complete, there is a color (#352b2b) not in the palette... GAHAHHAHAHAHAAARRRR
@@ -363,8 +386,8 @@ palette_sets = [
                     "riveted_pillar_side":  _16(32, 16),
                     "tank_side":            _16(48, 16),
 
-                    "boiler_gullet": (0,  33, 30, 30, True),
-                    "smokebox_door": (34, 33, 30, 30, True),
+                    "boiler_gullet": (0,  33, 30, 30, True, [expand_diagonals]),
+                    "smokebox_door": (34, 33, 30, 30, True, [expand_diagonals]),
 
                     "boiler_side":                   (65, 24, 16, 48, True, [vertical_strip_to_horizontal_kryppers_single]),
                     "boiler_side_connected":         (65, 24, 16, 48, True, [vertical_strip_to_horizontal_kryppers]),
