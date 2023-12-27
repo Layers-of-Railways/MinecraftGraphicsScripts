@@ -317,6 +317,7 @@ class PaletteConf:
                     self.sv(ct_gen.generate_ct(sector), "output", color_name, f"{sector_name.replace('template', 'full')}.png")
 
     def gen_preview_rp(self):
+        if self.name != "boiler": return
         if self.sectors is None: return
         textures = [v.replace("template", "full") for v in self.sectors.keys() if "template" in v]
         if len(textures) is None: return
@@ -367,8 +368,45 @@ def _16(x: int, y: int) -> tuple[int, int, int, int, bool]:
     return x, y, 16, 16, True
 def _ct(x: int, y: int) -> tuple[int, int, int, int, bool]:
     return x, y, 64, 32, True
-# new mapping: ['brown', 'red', 'orange', 'yellow', 'green', 'dark_green', 'deep_green', 'light_blue', 'blue', 'purple',
-#               'magenta', 'pink', 'white', 'light_grey', 'dark_grey', 'black', 'netherite'],
+
+class ImageBundle:
+    def __init__(self, name: str, inputs: list[str], output: str):
+        self.name = name
+        self.inputs = inputs
+        self.output = output
+        self._sectors: dict[str, tuple[int, int, int, int, bool]] | None = None
+
+    def _mkpath(self, *parts: str) -> str:
+        return os.path.join("sets", self.name, *parts)
+
+    def ld(self, *path: str) -> pygame.Surface:
+        return pygame.image.load(self._mkpath(*path))
+
+    def sv(self, surf: pygame.Surface, *path: str):
+        pygame.image.save(surf, self._mkpath(*path))
+
+    def sectors(self) -> dict[str, tuple[int, int, int, int, bool]]:
+        if self._sectors is not None:
+            return self._sectors
+        self._sectors = {}
+        images = [(inp, self.ld(inp)) for inp in self.inputs]
+        width = sum(img.get_width() for _, img in images)
+        height = max(img.get_height() for _, img in images)
+        out = pygame.Surface((width, height), pygame.SRCALPHA)
+        x = 0
+        for name, img in images:
+            out.blit(img, (x, 0))
+            self._sectors[name.removesuffix(".png")] = (x, 0, img.get_width(), img.get_height(), False)
+            x += img.get_width()
+        self.sv(out, self.output)
+        return self._sectors
+
+
+smoke_bundle = ImageBundle("smoke",["chimneypush_medium_dyeable.png",
+                                    "chimneypush_small_dyeable.png",
+                                    "mediumpuff_dyeable.png",
+                                    "smallpuff_dyeable.png"], "smoke_sheet.png")
+
 palette_sets = [
     PaletteConf("boiler", "boiler_v2.png", "palette_new.png",
                 ['brown', 'red', 'orange', 'yellow', 'lime', 'cyan', 'green', 'light_blue', 'blue', 'purple',
@@ -405,6 +443,11 @@ palette_sets = [
                     split_horizontally_auto
                 ])
                 ),
+    PaletteConf("smoke", "smoke_sheet.png", "steam_palette.png",
+                ['brown', 'red', 'orange', 'yellow', 'lime', 'cyan', 'green', 'light_blue', 'blue', 'purple',
+                    'magenta', 'pink', 'white', 'light_gray', 'gray', 'black'],
+                'white',
+                sectors=smoke_bundle.sectors()),
 ]
 
 for palette_set in palette_sets:
