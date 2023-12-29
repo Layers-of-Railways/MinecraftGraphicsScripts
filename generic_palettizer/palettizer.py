@@ -409,7 +409,7 @@ smoke_bundle = ImageBundle("smoke",["chimneypush_medium_dyeable.png",
 
 palette_sets = [
     PaletteConf("boiler", "boiler_v2.png", "palette_new.png",
-                ['brown', 'red', 'orange', 'yellow', 'lime', 'cyan', 'green', 'light_blue', 'blue', 'purple',
+                ['brown', 'red', 'orange', 'yellow', 'lime', 'green', 'cyan', 'light_blue', 'blue', 'purple',
                 'magenta', 'pink', 'white', 'light_gray', 'gray', 'black', 'netherite'],
                 "netherite",
                 palette_processors=[shift_horiz(range(2), -1), half_scale],
@@ -444,7 +444,7 @@ palette_sets = [
                 ])
                 ),
     PaletteConf("smoke", "smoke_sheet.png", "steam_palette.png",
-                ['brown', 'red', 'orange', 'yellow', 'lime', 'cyan', 'green', 'light_blue', 'blue', 'purple',
+                ['brown', 'red', 'orange', 'yellow', 'lime', 'green', 'cyan', 'light_blue', 'blue', 'purple',
                     'magenta', 'pink', 'white', 'light_gray', 'gray', 'black'],
                 'white',
                 sectors=smoke_bundle.sectors()),
