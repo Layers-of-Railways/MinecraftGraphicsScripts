@@ -1,3 +1,4 @@
+import collections
 import shutil
 import typing
 import tempfile
@@ -126,7 +127,16 @@ def split_horizontally_auto(surf: pygame.Surface, divider_width: int = 2) -> lis
 
     return [surf.subsurface((r.start, 0, r.stop - r.start, surf.get_height())) for r in ranges]
 
-def build_sheet_splitter(sheet_tex: str, steps: list[typing.Callable[[pygame.Surface], list[pygame.Surface]]]) -> typing.Callable[["PaletteConf"], dict[str, pygame.Surface]]:
+def split_palettes_lining_sheet(surf: pygame.Surface) -> list[pygame.Surface]:
+    vertical_splits = split_vertically_auto(surf)
+    wrapped_slashed = split_horizontally_auto(vertical_splits[0])[1:] + split_horizontally_auto(vertical_splits[1])
+    wrapped_boilers = split_horizontally_auto(vertical_splits[2])[1:]
+
+    assert len(wrapped_slashed) == len(wrapped_boilers), f"Wrapped slashed ({len(wrapped_slashed)}) & wrapped boilers ({len(wrapped_boilers)}) have differing counts"
+
+    return [join_atlas_vert([wrapped_slashed[i], wrapped_boilers[i]]) for i in range(len(wrapped_slashed))]
+
+def build_sheet_splitter(sheet_tex: str, steps: list[typing.Callable[[pygame.Surface], list[pygame.Surface]]], step_prefixes: list[str] | None = None) -> typing.Callable[["PaletteConf"], dict[str, pygame.Surface]]:
     def f(conf: PaletteConf) -> dict[str, pygame.Surface]:
         images = [conf.ld(sheet_tex)]
 
@@ -137,12 +147,49 @@ def build_sheet_splitter(sheet_tex: str, steps: list[typing.Callable[[pygame.Sur
             images = new_images
 
             for j, image in enumerate(images):
-                conf.sv(image, "palettized_steps", f"step_{i + 1}_{j + 1}.png")
+                if step_prefixes is None:
+                    prefix = ""
+                else:
+                    prefix = "_" + ("_".join(step_prefixes))
+                conf.sv(image, "palettized_steps", f"step{prefix}_{i + 1}_{j + 1}.png")
 
         assert len(images) == len(conf.color_names), f"Color names ({len(conf.color_names)}) & split images ({len(images)}) have differing counts"
         return dict(zip(conf.color_names, images))
     return f
 
+def join_atlas(images: list[pygame.Surface]) -> pygame.Surface:
+    w = sum(img.get_width() for img in images)
+    h = max(img.get_height() for img in images)
+    out = pygame.Surface((w, h), pygame.SRCALPHA)
+    x = 0
+    for img in images:
+        out.blit(img, (x, 0))
+        x += img.get_width()
+    return out
+
+def join_atlas_vert(images: list[pygame.Surface]) -> pygame.Surface:
+    w = max(img.get_width() for img in images)
+    h = sum(img.get_height() for img in images)
+    out = pygame.Surface((w, h), pygame.SRCALPHA)
+    y = 0
+    for img in images:
+        out.blit(img, (0, y))
+        y += img.get_height()
+    return out
+
+def merge_sheet_splitters(splitters: list[typing.Callable[["PaletteConf"], dict[str, pygame.Surface]]]) -> typing.Callable[["PaletteConf"], dict[str, pygame.Surface]]:
+    def f(conf: PaletteConf) -> dict[str, pygame.Surface]:
+        out: dict[str, list[pygame.Surface]] = {color: [] for color in conf.color_names}
+        for splitter in splitters:
+            for color, img in splitter(conf).items():
+                out[color].append(img)
+
+        ret = {name: join_atlas(images) for name, images in out.items()}
+        for i, color in enumerate(conf.color_names):
+            conf.sv(ret[color], "palettized_steps", f"step_merged_{i + 1}.png")
+
+        return ret
+    return f
 # Palette should have sets of colors with a column of whitespace in btw (one row)
 class PaletteConf:
     def __init__(self, name: str, base_tex: str, palette_tex: str, color_names: list[str], base_color_name: str,
@@ -436,11 +483,25 @@ palette_sets = [
 
                     "slashed_ct_template":          _ct(0, 64),
                     "riveted_ct_template":          _ct(0, 97),
-                    "wrapped_slashed_ct_template":  _ct(0, 130)
+                    "wrapped_slashed_ct_template":  _ct(0, 130),
+
+                    "iron_wrapped_slashed": _16(81, 0),
+                    "iron_wrapped_slashed_ct_template": _ct(81, 0),
+                    "iron_wrapped_boiler_side": (81, 32, 16, 48, True, [vertical_strip_to_horizontal_kryppers_single]),
+                    "iron_wrapped_boiler_side_connected": (81, 32, 16, 48, True, [vertical_strip_to_horizontal_kryppers]),
+
+                    "copper_wrapped_slashed": _16(161, 0),
+                    "copper_wrapped_slashed_ct_template": _ct(161, 0),
+                    "copper_wrapped_boiler_side": (161, 32, 16, 48, True, [vertical_strip_to_horizontal_kryppers_single]),
+                    "copper_wrapped_boiler_side_connected": (161, 32, 16, 48, True, [vertical_strip_to_horizontal_kryppers]),
                 },
-                palettized_src=build_sheet_splitter("boilers.png", [
-                    split_vertically_auto,
-                    split_horizontally_auto
+                palettized_src=merge_sheet_splitters([
+                    build_sheet_splitter("boilers.png", [
+                        split_vertically_auto,
+                        split_horizontally_auto
+                    ], step_prefixes=["boilers"]),
+                    build_sheet_splitter("iron_lined_sheet.png", [split_palettes_lining_sheet], step_prefixes=["iron_lined"]),
+                    build_sheet_splitter("copper_lined_sheet.png", [split_palettes_lining_sheet], step_prefixes=["copper_lined"]),
                 ])
                 ),
     PaletteConf("smoke", "smoke_sheet.png", "steam_palette.png",
