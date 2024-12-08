@@ -1,12 +1,12 @@
-import collections
+import os
 import shutil
-import typing
+import sys
 import tempfile
-
-import ct_gen.ct_gen as ct_gen
+import typing
 
 import pygame
-import os
+
+import ct_gen.ct_gen as ct_gen
 
 pygame.init()
 
@@ -51,10 +51,10 @@ def vertical_strip_to_horizontal_kryppers_single(surf: pygame.Surface) -> pygame
 def dup_range(rng: range) -> range:
     return range(rng.start, rng.stop, rng.step)
 
-def shift_horiz(y_range: range, x_amt: int):
+def shift_horiz(y_range: range | None, x_amt: int):
     def f(surf: pygame.Surface) -> pygame.Surface:
         new_surf = surf.copy()
-        for y in y_range:
+        for y in (y_range or range(surf.get_height())):
             for x in range(new_surf.get_width()):
                 old_x = x - x_amt
                 if old_x < 0 or old_x >= surf.get_width():
@@ -64,13 +64,27 @@ def shift_horiz(y_range: range, x_amt: int):
         return new_surf
     return f
 
+def shift_vert(x_range: range | None, y_amt: int):
+    def f(surf: pygame.Surface) -> pygame.Surface:
+        new_surf = surf.copy()
+        for x in (x_range or range(surf.get_width())):
+            for y in range(new_surf.get_height()):
+                old_y = y - y_amt
+                if old_y < 0 or old_y >= surf.get_height():
+                    new_surf.set_at((x, y), (0, 0, 0, 0))
+                else:
+                    new_surf.set_at((x, y), surf.get_at((x, old_y)))
+        return new_surf
+    return f
+
 def half_scale(surf: pygame.Surface) -> pygame.Surface:
     return pygame.transform.scale(surf, (surf.get_width() / 2, surf.get_height() / 2))
 
-def split_vertically_auto(surf: pygame.Surface, divider_height: int = 2) -> list[pygame.Surface]:
+def split_vertically_auto(surf: pygame.Surface) -> list[pygame.Surface]:
     ranges: list[range] = [] # [start, end)
     start: int | None = None
 
+    y = 0
     for y in range(surf.get_height()):
         is_empty_row = True
         is_bottom_empty_row = True
@@ -97,10 +111,11 @@ def split_vertically_auto(surf: pygame.Surface, divider_height: int = 2) -> list
 
     return [surf.subsurface((0, r.start, surf.get_width(), r.stop - r.start)) for r in ranges]
 
-def split_horizontally_auto(surf: pygame.Surface, divider_width: int = 2) -> list[pygame.Surface]:
+def split_horizontally_auto(surf: pygame.Surface) -> list[pygame.Surface]:
     ranges: list[range] = [] # [start, end)
     start: int | None = None
 
+    x = 0
     for x in range(surf.get_width()):
         is_empty_col = True
         is_right_empty_col = True
@@ -195,7 +210,8 @@ class PaletteConf:
     def __init__(self, name: str, base_tex: str, palette_tex: str, color_names: list[str], base_color_name: str,
                  palette_processors: list[typing.Callable[[pygame.Surface], pygame.Surface]] = None,
                  sectors: dict[str, tuple[int, int, int, int, bool]] | None = None,
-                 palettized_src: typing.Callable[["PaletteConf"], dict[str, pygame.Surface]] | None = None):
+                 palettized_src: typing.Callable[["PaletteConf"], dict[str, pygame.Surface]] | None = None,
+                 permitted_palette_empty_columns: int = 0):
         self.name = name
         self.base_tex = base_tex
         self.palette_tex = palette_tex
@@ -203,6 +219,7 @@ class PaletteConf:
         self.base_color_name = base_color_name
         self.palette_processors = palette_processors or []
         self.palettized_src = palettized_src
+        self.permitted_palette_empty_columns = permitted_palette_empty_columns
         assert base_color_name in color_names
 
         self.sectors: dict[str, tuple[int, int, int, int, bool]] | None = sectors
@@ -242,14 +259,20 @@ class PaletteConf:
         ranges: list[range] = [] # [start, end)
         start: int | None = None
 
+        x = 0
+        empty_columns = 0
         for x in range(pal.get_width()):
             is_empty_column = True
             for y in range(pal.get_height()):
                 if pal.get_at((x, y))[3] > 10:
                     is_empty_column = False
                     break
-
             if is_empty_column:
+                empty_columns += 1
+            else:
+                empty_columns = 0
+
+            if empty_columns > self.permitted_palette_empty_columns:
                 if start is not None:
                     ranges.append(range(start, x))
                     start = None
@@ -339,7 +362,11 @@ class PaletteConf:
 
             for sector_name, params in self.sectors.items():
                 x_0, y_0, w, h, make_power_of_2 = params[:5]
-                sector = out.subsurface((x_0, y_0, w, h))
+                try:
+                    sector = out.subsurface((x_0, y_0, w, h))
+                except ValueError:
+                    print(f"Failed to make subsurface {(x_0, y_0, w, h)}", file=sys.stderr)
+                    raise
 
                 if make_power_of_2:
                     lowest_pow_2_width = 1
@@ -364,8 +391,49 @@ class PaletteConf:
                     self.sv(ct_gen.generate_ct(sector), "output", color_name, f"{sector_name.replace('template', 'full')}.png")
 
     def gen_preview_rp(self):
-        if self.name != "boiler": return
         if self.sectors is None: return
+        generators = {
+            "boiler": self._gen_preview_rp_boiler,
+            "palettes_plus": self._gen_preview_rp_palettes_plus
+        }
+        if self.name not in generators: return
+        generators[self.name]()
+
+    def _gen_preview_rp_palettes_plus(self):
+        tmp_dir = tempfile.mkdtemp()
+
+        cmd = f"cp -r \"rp_base\" \"{tmp_dir}\""
+        os.system(cmd)
+
+        dst = os.path.join(tmp_dir, "rp_base", "assets", "railways", "textures", "block")
+        print(dst)
+
+        os.makedirs(dst)
+
+        output_dir = os.path.abspath(self._mkpath("output"))
+        real_dst = os.path.join(dst, "palettes")
+
+        cmd = f"cp -r \"{output_dir}\" \"{real_dst}\""
+        os.system(cmd)
+
+        if True:
+            frm_path = os.path.abspath(self._mkpath("output", "turquoise", "boiler_slashed.png"))
+            to_path = os.path.join(dst, "../../../../pack.png")
+            cmd = f"cp \"{frm_path}\" \"{to_path}\""
+            os.system(cmd)
+
+        with open(os.path.join(tmp_dir, "rp_base", "pack.mcmeta"), "r") as f:
+            contents = f.read()
+        with open(os.path.join(tmp_dir, "rp_base", "pack.mcmeta"), "w") as f:
+            f.write(contents.replace("<NAME>", self.name).replace("<COLOR>", "full"))
+
+        os.system(f"cd \"{os.path.join(tmp_dir, 'rp_base')}\"; zip -r ../preview_rp.zip .")
+
+        preview_rp_path = self._mkpath("preview_rps", f"locometal_preview.zip")
+        os.system(f"cp \"{os.path.join(tmp_dir, 'preview_rp.zip')}\" \"{preview_rp_path}\"")
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    def _gen_preview_rp_boiler(self):
         textures = [v.replace("template", "full") for v in self.sectors.keys() if "template" in v]
         if len(textures) is None: return
 
@@ -413,8 +481,12 @@ class PaletteConf:
 # TODO: Palette is not complete, there is a color (#352b2b) not in the palette... GAHAHHAHAHAHAAARRRR
 def _16(x: int, y: int) -> tuple[int, int, int, int, bool]:
     return x, y, 16, 16, True
+def _32(x: int, y: int) -> tuple[int, int, int, int, bool]:
+    return x, y, 32, 32, True
 def _ct(x: int, y: int) -> tuple[int, int, int, int, bool]:
     return x, y, 64, 32, True
+def _ct_pre_exp(x: int, y: int) -> tuple[int, int, int, int, bool]:
+    return x, y, 128, 128, True
 
 class ImageBundle:
     def __init__(self, name: str, inputs: list[str], output: str):
@@ -509,9 +581,56 @@ palette_sets = [
                     'magenta', 'pink', 'white', 'light_gray', 'gray', 'black'],
                 'white',
                 sectors=smoke_bundle.sectors()),
+    PaletteConf("palettes_plus", "palettes_plus_sheet.png", "palettes_plus_palette.png",
+                ['brown', 'red', 'orange', 'yellow', 'lime', 'green', 'cyan', 'turquoise', 'light_blue', 'blue',
+                 'deep_blue', 'purple', 'magenta', 'pink', 'white', 'light_gray', 'gray', 'black', 'netherite'],
+                'netherite',
+                palette_processors=[shift_horiz(None, -1), shift_vert(None, -1), half_scale],
+                permitted_palette_empty_columns=1,
+                sectors={
+                    "slashed": _16(16, 16),
+                    "slashed_connected": _ct_pre_exp(256, 16),
+                    "riveted": _16(32, 16),
+                    "riveted_connected": _ct_pre_exp(384, 16),
+                    "sheeting": _16(48, 16),
+                    "annexed_slashed": _16(64, 16),
+                    "annexed_riveted": _16(80, 16),
+
+                    "riveted_pillar_top": _16(128, 16),
+                    "riveted_pillar_side": _16(128, 32),
+                    "riveted_pillar_side_connected": _32(128, 64),
+
+                    "smokebox_tank_top": _16(176, 16),
+                    "tank_side": _16(176, 32),
+                    "tank_side_connected": _32(176, 64),
+
+                    # boiler doors
+                    "boiler_gullet": (16, 48, 32, 32, True, [expand_diagonals]),
+                    "smokebox_door": (48, 48, 32, 32, True, [expand_diagonals]),
+                    "boiler_slashed": (80, 48, 32, 32, True, [expand_diagonals]),
+
+                    # boilers
+                    "boiler_side": _16(224, 16),
+                    "boiler_side_connected": _32(224, 32),
+                    "wrapped_boiler_side": _16(512, 31),
+                    "wrapped_boiler_side_connected": _32(512, 47),
+                    "copper_wrapped_boiler_side": _16(688, 31),
+                    "copper_wrapped_boiler_side_connected": _32(688, 47),
+                    "iron_wrapped_boiler_side": _16(848, 31),
+                    "iron_wrapped_boiler_side_connected": _32(848, 47),
+
+                    # wrapped
+                    "wrapped_slashed": _16(512, 15),
+                    "wrapped_slashed_connected": _ct_pre_exp(544, 15),
+                    "copper_wrapped_slashed": _16(688, 15),
+                    "copper_wrapped_slashed_connected": _ct_pre_exp(720, 15),
+                    "iron_wrapped_slashed": _16(848, 15),
+                    "iron_wrapped_slashed_connected": _ct_pre_exp(880, 15),
+                })
 ]
 
 for palette_set in palette_sets:
+    if palette_set.name != "palettes_plus": continue
     palette_set.palettize()
     palette_set.sectorize()
     palette_set.gen_preview_rp()
