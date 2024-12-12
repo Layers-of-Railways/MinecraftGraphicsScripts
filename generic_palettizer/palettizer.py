@@ -261,11 +261,13 @@ class PaletteConf:
 
         x = 0
         empty_columns = 0
+        found_anything_yet = False
         for x in range(pal.get_width()):
             is_empty_column = True
             for y in range(pal.get_height()):
                 if pal.get_at((x, y))[3] > 10:
                     is_empty_column = False
+                    found_anything_yet = True
                     break
             if is_empty_column:
                 empty_columns += 1
@@ -278,7 +280,7 @@ class PaletteConf:
                     start = None
                 else:
                     continue
-            elif start is None:
+            elif start is None and found_anything_yet:
                 start = x
 
         if start is not None:
