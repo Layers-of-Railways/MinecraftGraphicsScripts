@@ -211,7 +211,20 @@ class PaletteConf:
                  palette_processors: list[typing.Callable[[pygame.Surface], pygame.Surface]] = None,
                  sectors: dict[str, tuple[int, int, int, int, bool]] | None = None,
                  palettized_src: typing.Callable[["PaletteConf"], dict[str, pygame.Surface]] | None = None,
-                 permitted_palette_empty_columns: int = 0):
+                 permitted_palette_empty_columns: int = 0, custom_sector_paths: dict[str, str] | None = None):
+        """A simple, scriptable palette applicator
+
+        :param name: the name of the set, textures will be found in /generic_palettizer/sets/$name$
+        :param base_tex: the name of the base texture, will be converted to all the colors in `palette_tex`
+        :param palette_tex: the name of the palette texture, will be used to determine the colors
+        :param color_names: the names of the colors in the palette, in order
+        :param base_color_name: the name of the color in the palette that the base texture uses
+        :param palette_processors: a list of functions that will be applied to the palette texture before processing
+        :param sectors: a dictionary of sector names to sector parameters
+        :param palettized_src: a function that will generate the palettized textures, if None, the palette will be split and applied to base_tex
+        :param permitted_palette_empty_columns: the number of empty columns in the palette after which a new color is assumed
+        :param custom_sector_paths: a dictionary of sector names to custom paths for the sector, e.g {"my_sector": "custom_dir/{color}/{sector}_{color}.png"}
+        """
         self.name = name
         self.base_tex = base_tex
         self.palette_tex = palette_tex
@@ -223,6 +236,7 @@ class PaletteConf:
         assert base_color_name in color_names
 
         self.sectors: dict[str, tuple[int, int, int, int, bool]] | None = sectors
+        self.custom_sector_paths = custom_sector_paths
 
         self._palette_surf: pygame.Surface | None = None
         self.mkdirs()
@@ -387,10 +401,14 @@ class PaletteConf:
                     for processor in processors:
                         sector: pygame.Surface = processor(sector)
 
-                self.sv(sector, "output", color_name, f"{sector_name}.png")
+                if sector_name in self.custom_sector_paths:
+                    sector_path = self.custom_sector_paths[sector_name].format(color=color_name, sector=sector_name)
+                    self.sv(sector, "output", sector_path)
+                else:
+                    self.sv(sector, "output", color_name, f"{sector_name}.png")
 
-                if "template" in sector_name:
-                    self.sv(ct_gen.generate_ct(sector), "output", color_name, f"{sector_name.replace('template', 'full')}.png")
+                    if "template" in sector_name:
+                        self.sv(ct_gen.generate_ct(sector), "output", color_name, f"{sector_name.replace('template', 'full')}.png")
 
     def gen_preview_rp(self):
         if self.sectors is None: return
@@ -480,11 +498,14 @@ class PaletteConf:
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
-# TODO: Palette is not complete, there is a color (#352b2b) not in the palette... GAHAHHAHAHAHAAARRRR
 def _16(x: int, y: int) -> tuple[int, int, int, int, bool]:
     return x, y, 16, 16, True
 def _32(x: int, y: int) -> tuple[int, int, int, int, bool]:
     return x, y, 32, 32, True
+def _48(x: int, y: int) -> tuple[int, int, int, int, bool]:
+    return x, y, 48, 48, True
+def _xywh(x: int, y: int, w: int, h: int) -> tuple[int, int, int, int, bool]:
+    return x, y, w, h, True
 def _ct(x: int, y: int) -> tuple[int, int, int, int, bool]:
     return x, y, 64, 32, True
 def _ct_pre_exp(x: int, y: int) -> tuple[int, int, int, int, bool]:
@@ -590,44 +611,69 @@ palette_sets = [
                 palette_processors=[shift_horiz(None, -1), shift_vert(None, -1), half_scale],
                 permitted_palette_empty_columns=1,
                 sectors={
-                    "slashed": _16(16, 16),
-                    "slashed_connected": _ct_pre_exp(256, 16),
-                    "riveted": _16(32, 16),
-                    "riveted_connected": _ct_pre_exp(384, 16),
-                    "sheeting": _16(48, 16),
-                    "annexed_slashed": _16(64, 16),
-                    "annexed_riveted": _16(80, 16),
+                    "slashed": _16(16, 0),
+                    "slashed_connected": _ct_pre_exp(256, 0),
+                    "riveted": _16(32, 0),
+                    "riveted_connected": _ct_pre_exp(384, 0),
+                    "sheeting": _16(48, 0),
+                    "annexed_slashed": _16(64, 0),
+                    "annexed_riveted": _16(80, 0),
 
-                    "riveted_pillar_top": _16(128, 16),
-                    "riveted_pillar_side": _16(128, 32),
-                    "riveted_pillar_side_connected": _32(128, 64),
+                    "riveted_pillar_top": _16(128, 0),
+                    "riveted_pillar_side": _16(128, 16),
+                    "riveted_pillar_side_connected": _32(128, 48),
 
-                    "smokebox_tank_top": _16(176, 16),
-                    "tank_side": _16(176, 32),
-                    "tank_side_connected": _32(176, 64),
+                    # smokebox tank
+                    "smokebox_tank_top": _16(176, 0),
+                    "tank_side": _16(176, 16),
+                    "tank_side_connected": _32(176, 48),
+
+                    # wrapped smokebox tank
+                    "wrapped_tank_side": _16(512, 80),
+                    "wrapped_tank_connected": _32(512, 112),
+                    "copper_wrapped_tank_side": _16(688, 80),
+                    "copper_wrapped_tank_connected": _32(688, 112),
+                    "iron_wrapped_tank_side": _16(864, 80),
+                    "iron_wrapped_tank_connected": _32(864, 112),
 
                     # boiler doors
-                    "boiler_gullet": (16, 48, 32, 32, True, [expand_diagonals]),
-                    "smokebox_door": (48, 48, 32, 32, True, [expand_diagonals]),
-                    "boiler_slashed": (80, 48, 32, 32, True, [expand_diagonals]),
+                    "boiler_gullet": (16, 32, 32, 32, True, [expand_diagonals]),
+                    "smokebox_door": (48, 32, 32, 32, True, [expand_diagonals]),
+                    "boiler_slashed": (80, 32, 32, 32, True, [expand_diagonals]),
 
                     # boilers
-                    "boiler_side": _16(224, 16),
-                    "boiler_side_connected": _32(224, 32),
-                    "wrapped_boiler_side": _16(512, 31),
-                    "wrapped_boiler_side_connected": _32(512, 47),
-                    "copper_wrapped_boiler_side": _16(688, 31),
-                    "copper_wrapped_boiler_side_connected": _32(688, 47),
-                    "iron_wrapped_boiler_side": _16(848, 31),
-                    "iron_wrapped_boiler_side_connected": _32(848, 47),
+                    "boiler_side": _16(224, 0),
+                    "boiler_side_connected": _32(224, 16),
+                    "wrapped_boiler_side": _16(528, 16),
+                    "wrapped_boiler_side_connected": _32(528, 32),
+                    "copper_wrapped_boiler_side": _16(704, 16),
+                    "copper_wrapped_boiler_side_connected": _32(704, 32),
+                    "iron_wrapped_boiler_side": _16(880, 16),
+                    "iron_wrapped_boiler_side_connected": _32(880, 32),
 
                     # wrapped
-                    "wrapped_slashed": _16(512, 15),
-                    "wrapped_slashed_connected": _ct_pre_exp(544, 15),
-                    "copper_wrapped_slashed": _16(688, 15),
-                    "copper_wrapped_slashed_connected": _ct_pre_exp(720, 15),
-                    "iron_wrapped_slashed": _16(848, 15),
-                    "iron_wrapped_slashed_connected": _ct_pre_exp(880, 15),
+                    "wrapped_slashed": _16(528, 0),
+                    "wrapped_slashed_connected": _ct_pre_exp(560, 0),
+                    "copper_wrapped_slashed": _16(704, 0),
+                    "copper_wrapped_slashed_connected": _ct_pre_exp(736, 0),
+                    "iron_wrapped_slashed": _16(880, 0),
+                    "iron_wrapped_slashed_connected": _ct_pre_exp(912, 0),
+
+                    # wheels
+                    "w_spoked":  _48(0, 96), # 32x32
+                    "w_large":   _32(48, 96), # wheel
+                    "w_medium":  _16(80, 96), # medium
+                    "w_boxpock": _48(97, 96), # 32x32
+                    "w_bulleid": _48(145, 96), # 32x32
+                    "w_disc":    _48(193, 96)  # 32x32
+                },
+                custom_sector_paths={
+                    "w_spoked": "{color}/wheels/spoked/32x32.png",
+                    "w_large": "{color}/wheels/large/wheel.png",
+                    "w_medium": "{color}/wheels/medium/medium.png",
+                    "w_boxpock": "{color}/wheels/boxpock/32x32.png",
+                    "w_bulleid": "{color}/wheels/bulleid/32x32.png",
+                    "w_disc": "{color}/wheels/disc/32x32.png"
                 })
 ]
 
