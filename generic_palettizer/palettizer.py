@@ -403,6 +403,7 @@ class PaletteConf:
 
                 if sector_name in self.custom_sector_paths:
                     sector_path = self.custom_sector_paths[sector_name].format(color=color_name, sector=sector_name)
+                    os.makedirs(self._mkpath("output", os.path.dirname(sector_path)), exist_ok=True)
                     self.sv(sector, "output", sector_path)
                 else:
                     self.sv(sector, "output", color_name, f"{sector_name}.png")
