@@ -512,6 +512,15 @@ def _ct(x: int, y: int) -> tuple[int, int, int, int, bool]:
 def _ct_pre_exp(x: int, y: int) -> tuple[int, int, int, int, bool]:
     return x, y, 128, 128, True
 
+def _door(base_name: str, x0: int, y0: int, warn: bool = True) -> dict[str, tuple[int, int, int, int, bool]]:
+    if warn and "door" in base_name:
+        raise ValueError("base_name contains 'door'. This is likely a mistake. If it is intentional, include the parameter warn=False")
+    return {
+        f"{base_name}_door_top": _16(x0, y0),
+        f"{base_name}_door_bottom": _16(x0, y0 + 16),
+        f"{base_name}_door_side": _16(x0, y0 + 32)
+    }
+
 class ImageBundle:
     def __init__(self, name: str, inputs: list[str], output: str):
         self.name = name
@@ -633,11 +642,11 @@ palette_sets = [
 
                     # wrapped smokebox tank
                     "wrapped_tank_side": _16(512, 80),
-                    "wrapped_tank_connected": _32(512, 112),
+                    "wrapped_tank_connected": _32(512, 96),
                     "copper_wrapped_tank_side": _16(688, 80),
-                    "copper_wrapped_tank_connected": _32(688, 112),
+                    "copper_wrapped_tank_connected": _32(688, 96),
                     "iron_wrapped_tank_side": _16(864, 80),
-                    "iron_wrapped_tank_connected": _32(864, 112),
+                    "iron_wrapped_tank_connected": _32(864, 96),
 
                     # boiler doors
                     "boiler_gullet": (16, 32, 32, 32, True, [expand_diagonals]),
@@ -661,6 +670,32 @@ palette_sets = [
                     "copper_wrapped_slashed_connected": _ct_pre_exp(736, 0),
                     "iron_wrapped_slashed": _16(880, 0),
                     "iron_wrapped_slashed_connected": _ct_pre_exp(912, 0),
+
+                    # ladders
+                    "end_ladder": _16(16, 16),
+                    "rung_ladder": _16(32, 16),
+
+                    # doors
+                    **_door("sliding", 256, 144),
+                    **_door("hinged", 288, 144),
+                    **_door("folding", 320, 144),
+                    **_door("sliding_windowed", 352, 144),
+                    **_door("hinged_windowed", 384, 144),
+                    **_door("folding_windowed", 416, 144),
+
+                    # trapdoors
+                    "trapdoor": _16(448, 144),
+                    "windowed_trapdoor": _16(464, 160),
+
+                    # windows
+                    "two_pane_window": _16(496, 144),
+                    "two_pane_window_connected": _32(528, 144),
+                    "four_pane_window": _16(576, 144),
+                    "four_pane_window_connected": _32(608, 144),
+                    "single_pane_window": _16(656, 144),
+                    "single_pane_window_connected": _32(688, 144),
+                    "round_pane_window": _16(736, 144),
+                    "round_pane_window_connected": _32(768, 144),
 
                     # wheels
                     "w_spoked":  _48(0, 96), # 32x32
