@@ -630,6 +630,8 @@ palette_sets = [
                     "sheeting": _16(48, 0),
                     "annexed_slashed": _16(64, 0),
                     "annexed_riveted": _16(80, 0),
+                    "vent": _16(80, 16),
+                    "vent_connected": _ct_pre_exp(1040, 0),
 
                     "riveted_pillar_top": _16(128, 0),
                     "riveted_pillar_side": _16(128, 16),
@@ -673,7 +675,9 @@ palette_sets = [
 
                     # ladders
                     "end_ladder": _16(16, 16),
+                    "end_ladder_hoop": _16(48, 16),
                     "rung_ladder": _16(32, 16),
+                    "rung_ladder_hoop": _16(64, 16),
 
                     # doors
                     **_door("sliding", 256, 144),
@@ -696,6 +700,9 @@ palette_sets = [
                     "single_pane_window_connected": _32(688, 144),
                     "round_pane_window": _16(736, 144),
                     "round_pane_window_connected": _32(768, 144),
+
+                    # flywheels
+                    "flywheel": _32(0, 144),
 
                     # wheels
                     "w_spoked":  _48(0, 96), # 32x32
