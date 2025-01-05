@@ -644,11 +644,11 @@ palette_sets = [
 
                     # wrapped smokebox tank
                     "wrapped_tank_side": _16(512, 80),
-                    "wrapped_tank_connected": _32(512, 96),
+                    "wrapped_tank_side_connected": _32(512, 96),
                     "copper_wrapped_tank_side": _16(688, 80),
-                    "copper_wrapped_tank_connected": _32(688, 96),
+                    "copper_wrapped_tank_side_connected": _32(688, 96),
                     "iron_wrapped_tank_side": _16(864, 80),
-                    "iron_wrapped_tank_connected": _32(864, 96),
+                    "iron_wrapped_tank_side_connected": _32(864, 96),
 
                     # boiler doors
                     "boiler_gullet": (16, 32, 32, 32, True, [expand_diagonals]),
