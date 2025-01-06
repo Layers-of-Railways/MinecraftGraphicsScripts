@@ -8,9 +8,17 @@ import pygame
 
 import ct_gen.ct_gen as ct_gen
 
+SectorPostprocessor: typing.TypeAlias = typing.Callable[[pygame.Surface, str, dict[str, pygame.Surface]], pygame.Surface | dict[str, pygame.Surface]]
+"""Provided with the sector, which should not be mutated, and a dictionary of all common sectors, returns a new sector
+
+signature is (sector: pygame.Surface, sector_name: str, common_sectors: dict[str, pygame.Surface]) -> pygame.Surface | dict[str, pygame.Surface]
+if the return value is a dictionary, the input sector will be discarded and the new values will be used instead
+"""
+SectorSpec: typing.TypeAlias = tuple[int, int, int, int, bool] | tuple[int, int, int, int, bool, list[SectorPostprocessor]]
+
 pygame.init()
 
-def expand_diagonals(surf: pygame.Surface) -> pygame.Surface:
+def expand_diagonals(surf: pygame.Surface, _, __) -> pygame.Surface:
     out = pygame.Surface((surf.get_width(), surf.get_height()), pygame.SRCALPHA)
     for x in range(surf.get_width()):
         for y in range(surf.get_height()):
@@ -33,7 +41,7 @@ def expand_diagonals(surf: pygame.Surface) -> pygame.Surface:
     return out
 
 
-def vertical_strip_to_horizontal_kryppers(surf: pygame.Surface) -> pygame.Surface:
+def vertical_strip_to_horizontal_kryppers(surf: pygame.Surface, _, __) -> pygame.Surface:
     out = pygame.Surface((32, 32))
     out.blit(surf.subsurface(0, 0, 16, 16), (16, 16))
     out.blit(surf.subsurface(0, 32, 16, 16), (0, 16))
@@ -42,11 +50,23 @@ def vertical_strip_to_horizontal_kryppers(surf: pygame.Surface) -> pygame.Surfac
     out.blit(surf.subsurface(0, 40, 16, 8), (0, 8))
     return out
 
-def vertical_strip_to_horizontal_kryppers_single(surf: pygame.Surface) -> pygame.Surface:
+def vertical_strip_to_horizontal_kryppers_single(surf: pygame.Surface, _, __) -> pygame.Surface:
     out = pygame.Surface((16, 16))
     out.blit(surf.subsurface(0, 0, 16, 8), (0, 0))
     out.blit(surf.subsurface(0, 40, 16, 8), (0, 8))
     return out
+
+def mk_hazard_stripes(stripe_type: str, colors: list[str]) -> SectorPostprocessor:
+    def f(surf: pygame.Surface, sector_name: str, common_sectors: dict[str, pygame.Surface]) -> dict[str, pygame.Surface]:
+        out_dict = {}
+        for color in colors:
+            base = common_sectors[f"{color}_hazard_stripes_{stripe_type}_b"]
+            out = pygame.Surface((16, 16), pygame.SRCALPHA)
+            out.blit(base, (0, 0))
+            out.blit(surf, (0, 0))
+            out_dict[f"{sector_name}_on_{color}"] = out
+        return out_dict
+    return f
 
 def dup_range(rng: range) -> range:
     return range(rng.start, rng.stop, rng.step)
@@ -207,11 +227,21 @@ def merge_sheet_splitters(splitters: list[typing.Callable[["PaletteConf"], dict[
     return f
 # Palette should have sets of colors with a column of whitespace in btw (one row)
 class PaletteConf:
-    def __init__(self, name: str, base_tex: str, palette_tex: str, color_names: list[str], base_color_name: str,
-                 palette_processors: list[typing.Callable[[pygame.Surface], pygame.Surface]] = None,
-                 sectors: dict[str, tuple[int, int, int, int, bool]] | None = None,
-                 palettized_src: typing.Callable[["PaletteConf"], dict[str, pygame.Surface]] | None = None,
-                 permitted_palette_empty_columns: int = 0, custom_sector_paths: dict[str, str] | None = None):
+    def __init__(
+            self,
+            name: str,
+            base_tex: str,
+            palette_tex: str,
+            color_names: list[str],
+            base_color_name: str,
+            palette_processors: list[typing.Callable[[pygame.Surface], pygame.Surface]] = None,
+            sectors: dict[str, SectorSpec] | None = None,
+            palettized_src: typing.Callable[["PaletteConf"], dict[str, pygame.Surface]] | None = None,
+            permitted_palette_empty_columns: int = 0,
+            custom_sector_paths: dict[str, str] | None = None,
+            common_sector_sources: dict[str, dict[str, SectorSpec]] | None = None,
+            sector_postprocessors: dict[str, list[typing.Callable[[pygame.Surface, dict[str, pygame.Surface]], pygame.Surface]]] | None = None
+    ):
         """A simple, scriptable palette applicator
 
         :param name: the name of the set, textures will be found in /generic_palettizer/sets/$name$
@@ -224,6 +254,7 @@ class PaletteConf:
         :param palettized_src: a function that will generate the palettized textures, if None, the palette will be split and applied to base_tex
         :param permitted_palette_empty_columns: the number of empty columns in the palette after which a new color is assumed
         :param custom_sector_paths: a dictionary of sector names to custom paths for the sector, e.g {"my_sector": "custom_dir/{color}/{sector}_{color}.png"}
+        :param common_sector_sources: additional textures containing non-palettized sectors for use in sector postprocessing
         """
         self.name = name
         self.base_tex = base_tex
@@ -235,8 +266,12 @@ class PaletteConf:
         self.permitted_palette_empty_columns = permitted_palette_empty_columns
         assert base_color_name in color_names
 
-        self.sectors: dict[str, tuple[int, int, int, int, bool]] | None = sectors
+        self.sectors: dict[str, SectorSpec] | None = sectors
         self.custom_sector_paths = custom_sector_paths
+
+        self.common_sector_sources = common_sector_sources
+
+        self._common_sectors: dict[str, pygame.Surface] = {}
 
         self._palette_surf: pygame.Surface | None = None
         self.mkdirs()
@@ -251,7 +286,10 @@ class PaletteConf:
         pygame.image.save(surf, self._mkpath(*path))
 
     def mkdirs(self):
-        for ext in ["palette_process_steps", "preview_rps"] + [os.path.join("output", c) for c in self.color_names] + ([] if self.palettized_src is None else ["palettized_steps"]):
+        for ext in (["palette_process_steps", "preview_rps"] +
+                    [os.path.join("output", c) for c in self.color_names] +
+                    ([] if self.palettized_src is None else ["palettized_steps"]) +
+                    ([] if self.common_sector_sources is None else ["common_sectors"])):
             os.makedirs(self._mkpath(ext), exist_ok=True)
 
     def get_base_surf(self) -> pygame.Surface:
@@ -369,8 +407,39 @@ class PaletteConf:
                         img.set_at((x, y), palettes[color_name][idx])
             self.sv(img, "output", color_name, "0_full_base.png")
 
+    def _common_sectorize(self):
+        if self.common_sector_sources is None: return
+        for sheet_name, sectors in self.common_sector_sources.items():
+            sheet = self.ld(sheet_name)
+            for sector_name, params in sectors.items():
+                x_0, y_0, w, h, make_power_of_2 = params[:5]
+                try:
+                    sector = sheet.subsurface((x_0, y_0, w, h))
+                except ValueError:
+                    print(f"Failed to make subsurface {(x_0, y_0, w, h)}", file=sys.stderr)
+                    raise
+
+                if make_power_of_2:
+                    lowest_pow_2_width = 1
+                    while lowest_pow_2_width < sector.get_width():
+                        lowest_pow_2_width *= 2
+                    lowest_pow_2_height = 1
+                    while lowest_pow_2_height < sector.get_height():
+                        lowest_pow_2_height *= 2
+
+                    new_sector = pygame.Surface((lowest_pow_2_width, lowest_pow_2_height), pygame.SRCALPHA)
+                    new_sector.blit(sector, (0, 0))
+                    sector = new_sector
+
+                if len(params) == 6:
+                    raise ValueError("Common sectors cannot have postprocessors")
+
+                self._common_sectors[sector_name] = sector
+                self.sv(sector, "common_sectors", f"{sector_name}.png")
+
     def sectorize(self):
         if self.sectors is None: return
+        self._common_sectorize()
         # sector fmt:   x,  y,  w,  h, make power of 2
 
         for color_name in self.color_names:
@@ -396,20 +465,33 @@ class PaletteConf:
                     new_sector.blit(sector, (0, 0))
                     sector = new_sector
 
+                output_sectors: dict[str, pygame.Surface] = {sector_name: sector}
+                del sector_name
+                del sector
                 if len(params) == 6: # 6th element is a list of postprocessor functions
-                    processors: list[typing.Callable[[pygame.Surface], pygame.Surface]] = params[5]
+                    # noinspection PyTypeChecker
+                    # ^ unfortunately, PyCharm is *really* bad at understanding tuples
+                    processors: list[SectorPostprocessor] = params[5]
                     for processor in processors:
-                        sector: pygame.Surface = processor(sector)
+                        old_output_sectors: dict[str, pygame.Surface] = output_sectors
+                        output_sectors: dict[str, pygame.Surface] = {}
+                        for old_sector_name_, old_sector_ in old_output_sectors.items():
+                            ret = processor(old_sector_, old_sector_name_, self._common_sectors)
+                            if isinstance(ret, dict):
+                                output_sectors.update(ret)
+                            else:
+                                output_sectors[old_sector_name_] = ret
 
-                if sector_name in self.custom_sector_paths:
-                    sector_path = self.custom_sector_paths[sector_name].format(color=color_name, sector=sector_name)
-                    os.makedirs(self._mkpath("output", os.path.dirname(sector_path)), exist_ok=True)
-                    self.sv(sector, "output", sector_path)
-                else:
-                    self.sv(sector, "output", color_name, f"{sector_name}.png")
+                for sector_name_, sector_ in output_sectors.items():
+                    if sector_name_ in self.custom_sector_paths:
+                        sector_path = self.custom_sector_paths[sector_name_].format(color=color_name, sector=sector_name_)
+                        os.makedirs(self._mkpath("output", os.path.dirname(sector_path)), exist_ok=True)
+                        self.sv(sector_, "output", sector_path)
+                    else:
+                        self.sv(sector_, "output", color_name, f"{sector_name_}.png")
 
-                    if "template" in sector_name:
-                        self.sv(ct_gen.generate_ct(sector), "output", color_name, f"{sector_name.replace('template', 'full')}.png")
+                        if "template" in sector_name_:
+                            self.sv(ct_gen.generate_ct(sector_), "output", color_name, f"{sector_name_.replace('template', 'full')}.png")
 
     def gen_preview_rp(self):
         if self.sectors is None: return
@@ -499,20 +581,20 @@ class PaletteConf:
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
-def _16(x: int, y: int) -> tuple[int, int, int, int, bool]:
+def _16(x: int, y: int) -> SectorSpec:
     return x, y, 16, 16, True
-def _32(x: int, y: int) -> tuple[int, int, int, int, bool]:
+def _32(x: int, y: int) -> SectorSpec:
     return x, y, 32, 32, True
-def _48(x: int, y: int) -> tuple[int, int, int, int, bool]:
+def _48(x: int, y: int) -> SectorSpec:
     return x, y, 48, 48, True
-def _xywh(x: int, y: int, w: int, h: int) -> tuple[int, int, int, int, bool]:
+def _xywh(x: int, y: int, w: int, h: int) -> SectorSpec:
     return x, y, w, h, True
-def _ct(x: int, y: int) -> tuple[int, int, int, int, bool]:
+def _ct(x: int, y: int) -> SectorSpec:
     return x, y, 64, 32, True
-def _ct_pre_exp(x: int, y: int) -> tuple[int, int, int, int, bool]:
+def _ct_pre_exp(x: int, y: int) -> SectorSpec:
     return x, y, 128, 128, True
 
-def _door(base_name: str, x0: int, y0: int, warn: bool = True) -> dict[str, tuple[int, int, int, int, bool]]:
+def _door(base_name: str, x0: int, y0: int, warn: bool = True) -> dict[str, SectorSpec]:
     if warn and "door" in base_name:
         raise ValueError("base_name contains 'door'. This is likely a mistake. If it is intentional, include the parameter warn=False")
     return {
@@ -526,7 +608,7 @@ class ImageBundle:
         self.name = name
         self.inputs = inputs
         self.output = output
-        self._sectors: dict[str, tuple[int, int, int, int, bool]] | None = None
+        self._sectors: dict[str, SectorSpec] | None = None
 
     def _mkpath(self, *parts: str) -> str:
         return os.path.join("sets", self.name, *parts)
@@ -537,7 +619,7 @@ class ImageBundle:
     def sv(self, surf: pygame.Surface, *path: str):
         pygame.image.save(surf, self._mkpath(*path))
 
-    def sectors(self) -> dict[str, tuple[int, int, int, int, bool]]:
+    def sectors(self) -> dict[str, SectorSpec]:
         if self._sectors is not None:
             return self._sectors
         self._sectors = {}
@@ -687,6 +769,19 @@ palette_sets = [
                     **_door("hinged_windowed", 384, 144),
                     **_door("folding_windowed", 416, 144),
 
+                    # items
+                    "paint_pitcher": _16(96, 16),
+                    "sliding_door": _16(256, 128),
+                    "hinged_door": _16(288, 128),
+                    "folding_door": _16(320, 128),
+
+                    # hazard stripes
+                    "hazard_stripes_diagonal_a": (*_16(48, 144), [mk_hazard_stripes("diagonal", ["black", "white"])]),
+                    "hazard_stripes_chevron_a": (*_16(64, 144), [mk_hazard_stripes("chevron", ["black", "white"])]),
+                    # the bases are all b-style, so these aren't needed rn
+                    #"hazard_stripes_diagonal_b": _16(80, 144),
+                    #"hazard_stripes_chevron_b": _16(96, 144),
+
                     # trapdoors
                     "trapdoor": _16(448, 144),
                     "windowed_trapdoor": _16(464, 160),
@@ -719,6 +814,14 @@ palette_sets = [
                     "w_boxpock": "{color}/wheels/boxpock/32x32.png",
                     "w_bulleid": "{color}/wheels/bulleid/32x32.png",
                     "w_disc": "{color}/wheels/disc/32x32.png"
+                },
+                common_sector_sources={
+                    "hazard_stripes_base.png": {
+                        "black_hazard_stripes_diagonal_b": _16(0, 0),
+                        "black_hazard_stripes_chevron_b": _16(16, 16),
+                        "white_hazard_stripes_diagonal_b": _16(32, 0),
+                        "white_hazard_stripes_chevron_b": _16(48, 16),
+                    }
                 })
 ]
 
