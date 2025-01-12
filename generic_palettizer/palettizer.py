@@ -395,6 +395,10 @@ class PaletteConf:
 
         for color_name in self.color_names:
             img = pygame.Surface((w, h), pygame.SRCALPHA)
+            color_palette = palettes[color_name]
+            r_diffuse, g_diffuse, b_diffuse, = color_palette[6]
+            descr_str = f"Diffuse color for {color_name}: "
+            print(f"{descr_str:<35} 0x{r_diffuse:02x}{g_diffuse:02x}{b_diffuse:02x}")
             for x in range(w):
                 for y in range(h):
                     c = base_img.get_at((x, y))
@@ -404,7 +408,7 @@ class PaletteConf:
                         img.set_at((x, y), c)
                     else:
                         idx = palettes[self.base_color_name].index(c)
-                        img.set_at((x, y), palettes[color_name][idx])
+                        img.set_at((x, y), color_palette[idx])
             self.sv(img, "output", color_name, "0_full_base.png")
 
     def _common_sectorize(self):
