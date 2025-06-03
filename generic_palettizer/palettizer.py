@@ -780,8 +780,8 @@ palette_sets = [
                     "folding_door": _16(320, 128),
 
                     # hazard stripes
-                    "hazard_stripes_diagonal_a": (*_16(48, 144), [mk_hazard_stripes("diagonal", ["black", "white"])]),
-                    "hazard_stripes_chevron_a": (*_16(64, 144), [mk_hazard_stripes("chevron", ["black", "white"])]),
+                    "hazard_stripes_diagonal_a": (*_16(48, 64), [mk_hazard_stripes("diagonal", ["black", "white"])]),
+                    "hazard_stripes_chevron_a": (*_16(64, 64), [mk_hazard_stripes("chevron", ["black", "white"])]),
                     # the bases are all b-style, so these aren't needed rn
                     #"hazard_stripes_diagonal_b": _16(80, 144),
                     #"hazard_stripes_chevron_b": _16(96, 144),
